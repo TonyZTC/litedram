@@ -1,0 +1,40 @@
+# LiteDRAM standalone core config for the optional DRAM-controller sim build.
+# Consumed by scripts/litedram_gen.py (fork of litedram/gen.py) with --sim,
+# which swaps in the behavioral SDRAMPHYModel whose per-bank storage is
+# replaced by DPI calls into the C++ testbench's sparse memory store.
+#
+# Geometry: MT40A4G8 is a fake 32Gb x8 DDR4 die registered by the fork script
+# (the catalog maxes out at 16Gb and the sim model has no multi-rank support).
+# 8 dies -> 64-bit DRAM bus; at the sim 1:4 rate the user-port/native data
+# width is 64*2*4 = 512 bits and total capacity is 32GB -> 35-bit AXI user-port
+# byte address.
+{
+    # No embedded CPU: the core exposes a wb_ctrl Wishbone slave, and the C++
+    # testbench performs the init sequence through it.
+    "cpu":              "None",
+
+    # DRAM geometry.
+    "memtype":          "DDR4",
+    "sdram_module":     "MT40A4G8",
+    "sdram_module_nb":  8,          # x8 byte groups -> 64-bit DRAM bus
+    "sdram_rank_nb":    1,
+
+    # Clocking: single-clock in --sim mode (CRG on the "clk" pad, no PLL).
+    "sys_clk_freq":     100e6,
+
+    # Controller settings (collected into ControllerSettings by gen.py).
+    "cmd_buffer_depth": 16,
+    # Pin the mapping explicitly: the C++ DPI store inverts (bank, mem word
+    # address) back to a linear byte address assuming ROW_BANK_COL.
+    "address_mapping":  "ROW_BANK_COL",
+
+    # AXI4 user ports.
+    #  - "p0": the main 512-bit AXI4 slave port the host master drives.
+    #  - "tb": spare front-door port for the smoke test / future readback
+    #    checks; tied off in the full design.
+    # Both ports are blocked until init_done (block_until_ready default).
+    "user_ports": {
+        "p0": {"type": "axi", "id_width": 8},
+        "tb": {"type": "axi", "id_width": 4},
+    },
+}

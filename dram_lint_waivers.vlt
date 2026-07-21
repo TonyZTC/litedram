@@ -1,0 +1,16 @@
+`verilator_config
+// Lint waivers scoped to the machine-generated LiteDRAM core (Migen output;
+// benign width mixes and generated-code style). Must be listed on the
+// command line before the files it waives.
+// Match by file name (not directory) so the waivers apply regardless of the
+// relative path the file is passed under (the main build lists it as
+// .../dram_ctrl/generated/litedram_core.v; the smoke build as ../generated/...).
+// Migen emits `<=` inside its combinational always blocks (executed as `=`,
+// which matches Migen's semantics) and mixes widths in address arithmetic.
+lint_off -rule COMBDLY        -file "*litedram_core.v"
+lint_off -rule WIDTHEXPAND    -file "*litedram_core.v"
+lint_off -rule CASEINCOMPLETE -file "*litedram_core.v"
+lint_off -rule WIDTHTRUNC     -file "*litedram_core.v"
+// Migen instantiates dram_dpi_mem with minimally-sized parameter literals
+// (e.g. .BANK(4'hf)) that widen to the module's int parameters.
+lint_off -rule WIDTHEXPAND    -file "*dram_dpi_mem.sv"
