@@ -17,7 +17,7 @@
 // The core has no reset input (Migen power-on register initials); reset_l is
 // only used by the out-of-window counter.
 module dram_ctrl_wrap #(
-  parameter int unsigned AXI_ID_WIDTH   = 7,
+  parameter int unsigned AXI_ID_WIDTH   = 8,
   parameter int unsigned AXI_DATA_WIDTH = 512,
   parameter int unsigned AXI_ADDR_WIDTH = 64,
   parameter int unsigned CORE_ADDR_W    = 35,
