@@ -123,16 +123,62 @@ class DramDpiStore {
       return;
     }
 
-    uint64_t allocation_count = 0;
-    file.read(reinterpret_cast<char*>(&allocation_count),
-              sizeof(allocation_count));
+    // Two on-disk layouts are accepted, distinguished by a magic prefix --
+    // keep this in lockstep with AxiMemoryDrv::load_memory_from_binary, whose
+    // semantics this mirrors:
+    //
+    //   "UDRD" | u32 version | u64 any_physical | u64 records
+    //          then records of { u64 addr, u64 size, u64 is_physical, bytes }
+    //
+    //   legacy (no magic): u64 records, then { u64 addr, u64 size, bytes }
+    //
+    // The {addr, size, payload} triples are identical between the two; the
+    // newer format only adds the header and the per-record is_physical flag.
+    // is_physical is logged but not otherwise used: these addresses are already
+    // what the AXI side sees, translated or not.
+    char magic[4] = {};
+    file.read(magic, sizeof(magic));
     if (!file) {
       std::cerr << "[DRAM_CTRL] ERROR: Invalid binary header in " << filename
                 << std::endl;
       return;
     }
+    const bool tagged_format = (magic[0] == 'U' && magic[1] == 'D' &&
+                                magic[2] == 'R' && magic[3] == 'D');
+
+    uint64_t allocation_count = 0;
+    uint64_t any_physical = 0;
+    if (tagged_format) {
+      uint32_t version = 0;
+      file.read(reinterpret_cast<char*>(&version), sizeof(version));
+      file.read(reinterpret_cast<char*>(&any_physical), sizeof(any_physical));
+      file.read(reinterpret_cast<char*>(&allocation_count),
+                sizeof(allocation_count));
+      if (!file) {
+        std::cerr << "[DRAM_CTRL] ERROR: Truncated UDRD header in " << filename
+                  << std::endl;
+        return;
+      }
+      if (version != 1) {
+        std::cerr << "[DRAM_CTRL] ERROR: Unsupported UDRD version " << version
+                  << " in " << filename << " (expected 1)" << std::endl;
+        return;
+      }
+    } else {
+      // The legacy layout starts with the record count, so the four bytes we
+      // already consumed are its low half.
+      file.seekg(0, std::ios::beg);
+      file.read(reinterpret_cast<char*>(&allocation_count),
+                sizeof(allocation_count));
+      if (!file) {
+        std::cerr << "[DRAM_CTRL] ERROR: Invalid binary header in " << filename
+                  << std::endl;
+        return;
+      }
+    }
 
     uint64_t total_bytes = 0;
+    uint64_t physical_records = 0;
     for (uint64_t allocation = 0; allocation < allocation_count;
          allocation++) {
       uint64_t start_address = 0;
@@ -140,6 +186,11 @@ class DramDpiStore {
       file.read(reinterpret_cast<char*>(&start_address),
                 sizeof(start_address));
       file.read(reinterpret_cast<char*>(&byte_count), sizeof(byte_count));
+      if (tagged_format) {
+        uint64_t is_physical = 0;
+        file.read(reinterpret_cast<char*>(&is_physical), sizeof(is_physical));
+        if (is_physical) physical_records++;
+      }
       if (!file) {
         std::cerr << "[DRAM_CTRL] ERROR: Truncated allocation header"
                   << std::endl;
@@ -165,7 +216,15 @@ class DramDpiStore {
     }
 
     std::cout << "[DRAM_CTRL] Loaded " << allocation_count << " allocations, "
-              << total_bytes << " bytes from " << filename << std::endl;
+              << total_bytes << " bytes from " << filename;
+    if (tagged_format) {
+      std::cout << " (UDRD, any_physical=" << any_physical << ", "
+                << physical_records << "/" << allocation_count
+                << " record(s) flagged physical)";
+    } else {
+      std::cout << " (legacy format)";
+    }
+    std::cout << std::endl;
   }
 
   size_t populated_dwords() {
